@@ -9047,10 +9047,15 @@ class JarvisUI:
     def __init__(self, face_path: str, size=None):
         self._app = QApplication.instance() or QApplication(sys.argv)
         self._app.setStyle("Fusion")
+        self._closing = False
+        self._app.aboutToQuit.connect(self._mark_closing)
 
         self._win = MainWindow(face_path)
         self._win.show()
         self.root = _RootShim(self._app)
+
+    def _mark_closing(self):
+        self._closing = True
 
     @property
     def muted(self) -> bool:
@@ -9103,7 +9108,18 @@ class JarvisUI:
         self._win.on_tts_provider_change = cb
 
     def set_state(self, state: str):
-        self._win._state_sig.emit(state)
+        if self._closing:
+            return
+        value = str(state or "IDLE")
+        try:
+            self._win._state_sig.emit(value)
+        except RuntimeError:
+            # The live session runs on a worker thread and can report one last
+            # state while Qt is tearing down the main window.
+            from PyQt6 import sip
+
+            if not self._closing and not sip.isdeleted(self._win):
+                raise
 
     def write_log(self, text: str):
         self._win._log_sig.emit(text)
