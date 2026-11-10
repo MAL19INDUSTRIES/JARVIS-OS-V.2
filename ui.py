@@ -9122,8 +9122,20 @@ class JarvisUI:
                 raise
 
     def write_log(self, text: str):
-        self._win._log_sig.emit(text)
-        self._win._parse_log_for_context(text)
+        if self._closing:
+            return
+        value = str(text or "")
+        try:
+            self._win._log_sig.emit(value)
+            self._win._parse_log_for_context(value)
+        except RuntimeError:
+            # Same teardown race as set_state: the live session runs on a
+            # worker thread and can log one last line while Qt is tearing
+            # down the main window.
+            from PyQt6 import sip
+
+            if not self._closing and not sip.isdeleted(self._win):
+                raise
 
     def wait_for_api_key(self):
         while not self._win._ready:
